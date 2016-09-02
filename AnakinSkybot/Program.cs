@@ -21,17 +21,7 @@ internal class Player
         {
             #region inputs
 
-            string[] inputs = Console.ReadLine().Split(' ');
-            int x = int.Parse(inputs[0]);
-            int y = int.Parse(inputs[1]);
-            int nextCheckpointX = int.Parse(inputs[2]); // x position of the next check point
-            int nextCheckpointY = int.Parse(inputs[3]); // y position of the next check point
-            int nextCheckpointDist = int.Parse(inputs[4]); // distance to the next checkpoint
-            int nextCheckpointAngle = int.Parse(inputs[5]);
-                // angle between your pod orientation and the direction of the next checkpoint
-            inputs = Console.ReadLine().Split(' ');
-            int opponentX = int.Parse(inputs[0]);
-            int opponentY = int.Parse(inputs[1]);
+            inputManager.Update();
 
             #endregion
 
@@ -41,25 +31,31 @@ internal class Player
             if (checkpoints.Count == 0)
             {
                 // We guess that the first/final Checkpoint is in between our pod and the opponent
-                int diffX = opponentX - x;
-                int diffY = opponentY - y;
+                int diffX = inputManager.OpponentPosition.X - inputManager.PlayerPosition.X;
+                int diffY = inputManager.OpponentPosition.Y - inputManager.PlayerPosition.Y;
 
-                var initialCp = new Checkpoint(0, x + diffX, y + diffY);
+                var initialCp = new Checkpoint(0, inputManager.PlayerPosition.X + diffX,
+                    inputManager.PlayerPosition.Y + diffY);
                 checkpoints.Add(initialCp);
             }
 
             // Create a new Checkpoint with current target if we don't know all Checkpoints yet
             Checkpoint newCp = null;
             if (!allCheckpointsKnown)
-                newCp = new Checkpoint(checkpointCounter, nextCheckpointX, nextCheckpointY);
+            {
+                newCp = new Checkpoint(checkpointCounter, inputManager.NextCheckpointLocation.X,
+                    inputManager.NextCheckpointLocation.Y);
+            }
 
             // Try to get the current target CP. If its null, then we add the newCP and set it as current
             // we use a threshold of 600 because we guessed the first Checkpoint
             var currentCp =
                 checkpoints.Find(
                     cp =>
-                        (cp.X >= nextCheckpointX - 600 && cp.X <= nextCheckpointX + 600) &&
-                        (cp.Y >= nextCheckpointY - 600 && cp.Y <= nextCheckpointY + 600));
+                        (cp.X >= inputManager.NextCheckpointLocation.X - 600 &&
+                         cp.X <= inputManager.NextCheckpointLocation.X + 600) &&
+                        (cp.Y >= inputManager.NextCheckpointLocation.Y - 600 &&
+                         cp.Y <= inputManager.NextCheckpointLocation.Y + 600));
             if (currentCp == null)
             {
                 checkpoints.Add(newCp);
@@ -72,7 +68,8 @@ internal class Player
                 !allCheckpointsKnown)
             {
                 // update the first Checkpoint with exact values
-                checkpoints[0] = new Checkpoint(0, nextCheckpointX, nextCheckpointY);
+                checkpoints[0] = new Checkpoint(0, inputManager.NextCheckpointLocation.X,
+                    inputManager.NextCheckpointLocation.Y);
 
                 allCheckpointsKnown = true;
 
@@ -96,20 +93,22 @@ internal class Player
 
             #region speed calculations
 
-            Point currentPosition = new Point(x, y);
             if (lastPosition.X != -1 &&
                 lastPosition.Y != -1)
-                speed = Math.Abs(currentPosition.X - lastPosition.X) + Math.Abs(currentPosition.Y - lastPosition.Y);
+            {
+                speed = Math.Abs(inputManager.PlayerPosition.X - lastPosition.X) +
+                        Math.Abs(inputManager.PlayerPosition.Y - lastPosition.Y);
+            }
 
             #endregion
 
             #region target finding
 
-            int nextTargetX = nextCheckpointX;
-            int nextTargetY = nextCheckpointY;
+            int nextTargetX = inputManager.NextCheckpointLocation.X;
+            int nextTargetY = inputManager.NextCheckpointLocation.Y;
 
             if (allCheckpointsKnown &&
-                nextCheckpointDist < 1500 &&
+                inputManager.DistanceToNextCheckPoint < 1500 &&
                 speed > 500)
             {
                 Console.Error.WriteLine("currentCP: " + currentCp.Id);
@@ -127,21 +126,22 @@ internal class Player
             #region thrust calculations
 
             // calculate slow down value for distance to next target
-            int nextTargetDist = Math.Abs(nextCheckpointX - x) + Math.Abs(nextCheckpointY - y);
+            int nextTargetDist = Math.Abs(inputManager.NextCheckpointLocation.X - inputManager.PlayerPosition.X) +
+                                 Math.Abs(inputManager.NextCheckpointLocation.Y - inputManager.PlayerPosition.Y);
             int distSlow = 0;
             if (nextTargetDist < 2000)
                 distSlow = (2000 - nextTargetDist) / 20;
 
             // calculate slow down value for angle to next checkpoint
             int angleSlow = 0;
-            if (Math.Abs(nextCheckpointAngle) > 10)
-                angleSlow = (Math.Abs(nextCheckpointAngle) - 10) /** * 10 / 10 **/;
+            if (Math.Abs(inputManager.AngleToNextCheckPoint) > 10)
+                angleSlow = (Math.Abs(inputManager.AngleToNextCheckPoint) - 10) /** * 10 / 10 **/;
 
             // calculate slow down value for current vector angle to next checkpoint
-            int currentVectorX = currentPosition.X - lastPosition.X;
-            int currentVectorY = currentPosition.Y - lastPosition.Y;
-            int nextCpVectorX = nextCheckpointX - currentPosition.X;
-            int nextCpVectorY = nextCheckpointY - currentPosition.Y;
+            int currentVectorX = inputManager.NextCheckpointLocation.X - lastPosition.X;
+            int currentVectorY = inputManager.NextCheckpointLocation.Y - lastPosition.Y;
+            int nextCpVectorX = inputManager.NextCheckpointLocation.X - inputManager.NextCheckpointLocation.X;
+            int nextCpVectorY = inputManager.NextCheckpointLocation.Y - inputManager.NextCheckpointLocation.Y;
 
             double currentVectorAngle = Math.Acos((currentVectorX * nextCpVectorX + currentVectorY * nextCpVectorY) /
                                                   Math.Pow(
@@ -164,7 +164,7 @@ internal class Player
                 boostCp = checkpoints[checkpoints.Count - 1];
             if (angleSlow == 0 &&
                 boostCpId == boostCp.Id &&
-                nextCheckpointDist > 4000 &&
+                inputManager.DistanceToNextCheckPoint > 4000 &&
                 !boost)
             {
                 sThrust = "BOOST";
@@ -175,7 +175,7 @@ internal class Player
 
             #region status messages
 
-            if (true)
+            if (false)
             {
                 foreach (var cp in checkpoints)
                     Console.Error.WriteLine(cp.Id + " " + cp.X + " " + cp.Y + " " + cp.DistToNext);
@@ -184,9 +184,9 @@ internal class Player
 
                 Console.Error.WriteLine("allCheckpointsKnown: " + allCheckpointsKnown);
 
-                Console.Error.WriteLine("nextCheckpointDist: " + nextCheckpointDist);
+                Console.Error.WriteLine("nextCheckpointDist: " + inputManager.DistanceToNextCheckPoint);
 
-                Console.Error.WriteLine("nextCheckpointAngle: " + nextCheckpointAngle);
+                Console.Error.WriteLine("nextCheckpointAngle: " + inputManager.AngleToNextCheckPoint);
 
                 Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
 
@@ -197,7 +197,7 @@ internal class Player
                 Console.Error.WriteLine("nextCpVectorY: " + nextCpVectorY);
 
                 Console.Error.WriteLine("lastPosition: " + lastPosition);
-                Console.Error.WriteLine("currentPosition: " + currentPosition);
+                Console.Error.WriteLine("currentPosition: " + inputManager.PlayerPosition);
 
                 Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
                 Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
@@ -213,7 +213,7 @@ internal class Player
 
             #endregion
 
-            lastPosition = currentPosition;
+            lastPosition = inputManager.PlayerPosition;
 
             Console.WriteLine(nextTargetX + " " + nextTargetY + " " + sThrust);
         }
