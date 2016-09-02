@@ -10,17 +10,16 @@ public class Player
     {
         IInputContainer inputContainer = new InputContainer(new ConsoleInputGetter());
         IInitialCheckpointGuesser initialCheckpointGuesser = new InitialCheckpointGuesser(inputContainer);
+        ICheckpointMemory iCheckpointMemory = new CheckpointMemory();
+        IBoostUseCalculator boostUseCalculator = new BoostUseCalculator(iCheckpointMemory);
 
-        new Player().Start(inputContainer, initialCheckpointGuesser);
+        new Player().Start(inputContainer, initialCheckpointGuesser, iCheckpointMemory, boostUseCalculator);
     }
 
-    public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser)
+    public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser,
+        ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator)
     {
         bool boost = false;
-        List<Checkpoint> checkpoints = new List<Checkpoint>();
-        int checkpointCounter = 1;
-        bool allCheckpointsKnown = false;
-        int boostCpId = -1;
         int speed = -1;
         Point lastPosition = new Point(-1, -1);
 
@@ -33,57 +32,31 @@ public class Player
             #region Checkpoint calculations
 
             // Set first Checkpoint on game start (guessing)
-            if (checkpoints.Count == 0)
-                checkpoints.Add(initialCheckpointGuesser.GuessInitialCheckPoint());
+            if (checkpointMemory.KnownCheckpoints.Count == 0)
+                checkpointMemory.AddCheckpoint(initialCheckpointGuesser.GuessInitialCheckPoint());
 
             // Create a new Checkpoint with current target if we don't know all the Checkpoints yet
-            Checkpoint nextCheckPoint = null;
-            if (!allCheckpointsKnown)
-            {
-                nextCheckPoint = new Checkpoint(checkpointCounter, inputContainer.NextCheckpointLocation.X,
-                    inputContainer.NextCheckpointLocation.Y);
-            }
+            if (!checkpointMemory.AllCheckPointsKnown &&
+                checkpointMemory.GetCheckpointAtPosition(inputContainer.NextCheckpointLocation) == null)
+                checkpointMemory.AddCheckpoint(inputContainer.NextCheckpointLocation);
 
             // Try to get the current target Checkpoint. If its null, then we add the newCP and set it as current
             // we use a threshold of 600 because we guessed the first Checkpoint
-            var currentCp =
-                checkpoints.Find(
-                    cp =>
-                        (cp.Position.X >= inputContainer.NextCheckpointLocation.X - 600 &&
-                         cp.Position.X <= inputContainer.NextCheckpointLocation.X + 600) &&
-                        (cp.Position.Y >= inputContainer.NextCheckpointLocation.Y - 600 &&
-                         cp.Position.Y <= inputContainer.NextCheckpointLocation.Y + 600));
+            var currentCp = checkpointMemory.GetCheckpointAtPosition(inputContainer.NextCheckpointLocation);
             if (currentCp == null)
             {
-                checkpoints.Add(nextCheckPoint);
-                checkpointCounter++;
-                currentCp = nextCheckPoint;
+                checkpointMemory.AddCheckpoint(inputContainer.NextCheckpointLocation);
+                currentCp = checkpointMemory.GetCheckpointAtPosition(inputContainer.NextCheckpointLocation);
             }
 
             // if we target the first Checkpoint we can safely say, that we know all Checkpoints
             if (currentCp.Id == 0 &&
-                !allCheckpointsKnown)
+                !checkpointMemory.AllCheckPointsKnown)
             {
                 // update the first Checkpoint with exact values
-                checkpoints[0] = new Checkpoint(0, inputContainer.NextCheckpointLocation.X,
-                    inputContainer.NextCheckpointLocation.Y);
+                checkpointMemory.UpdateCheckpoint(currentCp, inputContainer.NextCheckpointLocation);
 
-                allCheckpointsKnown = true;
-
-                // calculate the checkpoint on which to use boost (checkpoint with greatest dist to next checkpoint)
-                foreach (var cp in checkpoints)
-                {
-                    var cpNext = checkpoints.Find(ncp => ncp.Id == cp.Id + 1);
-                    if (cpNext == null)
-                        cpNext = checkpoints[0];
-
-                    int distX = cpNext.Position.X - cp.Position.X;
-                    int distY = cpNext.Position.Y - cp.Position.Y;
-
-                    cp.DistToNext = Math.Abs(distX) + Math.Abs(distY);
-                }
-
-                boostCpId = checkpoints.OrderByDescending(item => item.DistToNext).First().Id;
+                checkpointMemory.AllCheckPointsKnown = true;
             }
 
             #endregion
@@ -104,14 +77,14 @@ public class Player
             int nextTargetX = inputContainer.NextCheckpointLocation.X;
             int nextTargetY = inputContainer.NextCheckpointLocation.Y;
 
-            if (allCheckpointsKnown &&
+            if (checkpointMemory.AllCheckPointsKnown &&
                 inputContainer.DistanceToNextCheckPoint < 1500 &&
                 speed > 500)
             {
                 Console.Error.WriteLine("currentCP: " + currentCp.Id);
-                var nextTargetCp = checkpoints.Find(cp => cp.Id == currentCp.Id + 1);
+                var nextTargetCp = checkpointMemory.KnownCheckpoints.ToList().Find(cp => cp.Id == currentCp.Id + 1);
                 if (nextTargetCp == null)
-                    nextTargetCp = checkpoints[0];
+                    nextTargetCp = checkpointMemory.KnownCheckpoints[0];
                 Console.Error.WriteLine("nextTargetCP: " + nextTargetCp.Id);
 
                 nextTargetX = nextTargetCp.Position.X;
@@ -156,11 +129,9 @@ public class Player
             string sThrust = thrust.ToString();
 
             // if we pass the boostCP -> BOOOOOST...
-            var boostCp = checkpoints.Find(cp => cp.Id == currentCp.Id - 1);
-            if (boostCp == null)
-                boostCp = checkpoints[checkpoints.Count - 1];
-            if (angleSlow == 0 &&
-                boostCpId == boostCp.Id &&
+            if (checkpointMemory.AllCheckPointsKnown &&
+                inputContainer.NextCheckpointLocation == boostUseCalculator.GetBoostTargetCheckpoint().Position &&
+                angleSlow == 0 &&
                 inputContainer.DistanceToNextCheckPoint > 4000 &&
                 !boost)
             {
@@ -172,14 +143,14 @@ public class Player
 
             #region status messages
 
-            if (false)
+            if (true)
             {
-                foreach (var cp in checkpoints)
+                foreach (var cp in checkpointMemory.KnownCheckpoints)
                     Console.Error.WriteLine(cp.Id + " " + cp.Position.X + " " + cp.Position.Y + " " + cp.DistToNext);
 
-                Console.Error.WriteLine("cp count: " + checkpoints.Count);
+                Console.Error.WriteLine("cp count: " + checkpointMemory.KnownCheckpoints.Count);
 
-                Console.Error.WriteLine("allCheckpointsKnown: " + allCheckpointsKnown);
+                Console.Error.WriteLine("allCheckpointsKnown: " + checkpointMemory.AllCheckPointsKnown);
 
                 Console.Error.WriteLine("nextCheckpointDist: " + inputContainer.DistanceToNextCheckPoint);
 
@@ -203,7 +174,7 @@ public class Player
 
                 Console.Error.WriteLine("angleSlow: " + angleSlow);
 
-                Console.Error.WriteLine("boostCpId: " + boostCpId);
+                Console.Error.WriteLine("boostCpId: " + boostUseCalculator.GetBoostTargetCheckpoint().Id);
 
                 Console.Error.WriteLine("thrust: " + thrust);
             }
@@ -336,7 +307,14 @@ public interface ICheckpointMemory
 public class CheckpointMemory : ICheckpointMemory
 {
     private readonly List<Checkpoint> knownCheckpoints;
-    private int checkpointCounter;
+
+    private int CheckpointCounter
+    {
+        get
+        {
+            return knownCheckpoints.Count;
+        }
+    }
 
     public ReadOnlyCollection<Checkpoint> KnownCheckpoints => knownCheckpoints.AsReadOnly();
 
@@ -347,7 +325,6 @@ public class CheckpointMemory : ICheckpointMemory
     public CheckpointMemory()
     {
         knownCheckpoints = new List<Checkpoint>();
-        checkpointCounter = 0;
     }
 
     public void AddCheckpoint(Checkpoint checkpoint)
@@ -357,8 +334,7 @@ public class CheckpointMemory : ICheckpointMemory
 
     public void AddCheckpoint(Point p)
     {
-        AddCheckpoint(new Checkpoint(checkpointCounter, p.X, p.Y));
-        checkpointCounter++;
+        AddCheckpoint(new Checkpoint(CheckpointCounter, p.X, p.Y));
     }
 
     public Checkpoint GetCheckpointAtPosition(Point p, int threshold = 600)
@@ -376,7 +352,12 @@ public class CheckpointMemory : ICheckpointMemory
     }
 }
 
-public class BoostUseCalculator
+public interface IBoostUseCalculator
+{
+    Checkpoint GetBoostTargetCheckpoint();
+}
+
+public class BoostUseCalculator : IBoostUseCalculator
 {
     private readonly ICheckpointMemory checkpointMemory;
 
@@ -385,8 +366,26 @@ public class BoostUseCalculator
         this.checkpointMemory = checkpointMemory;
     }
 
-    Checkpoint GetBoostCheckpoint()
+    public Checkpoint GetBoostTargetCheckpoint()
     {
-        throw new NotImplementedException();
+        // calculate distance to next Checkpoint for every Checkpoint
+        foreach (var cp in checkpointMemory.KnownCheckpoints)
+        {
+            var cpNext = checkpointMemory.KnownCheckpoints.ToList().Find(ncp => ncp.Id == cp.Id + 1);
+            if (cpNext == null)
+                cpNext = checkpointMemory.KnownCheckpoints[0];
+
+            int distX = cpNext.Position.X - cp.Position.X;
+            int distY = cpNext.Position.Y - cp.Position.Y;
+
+            cp.DistToNext = Math.Abs(distX) + Math.Abs(distY);
+        }
+
+        // find Checkpoint with longest distance to next Checkpoint
+        int boostCpId = checkpointMemory.KnownCheckpoints.ToList().OrderByDescending(item => item.DistToNext).First().Id;
+
+        // find and return next Checkpoint (the Checkpoint to boost to)
+        Checkpoint boostCheckpoint = checkpointMemory.KnownCheckpoints.ToList().Find(x => x.Id == boostCpId + 1);
+        return boostCheckpoint ?? checkpointMemory.KnownCheckpoints[0];
     }
 }
