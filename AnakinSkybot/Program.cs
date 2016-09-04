@@ -396,7 +396,7 @@ public class SpeedCalculator : ISpeedCalculator
 public interface ITargetFinding
 {
     Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp,
-        Checkpoint checkpointAftrtNextCheckpoint);
+        Checkpoint checkpointAftertNextCheckpoint);
 }
 
 public class TargetFinder : ITargetFinding
@@ -416,7 +416,7 @@ public class TargetFinder : ITargetFinding
     }
 
     public Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp,
-        Checkpoint checkpointAftrtNextCheckpoint)
+        Checkpoint checkpointAftertNextCheckpoint)
     {
         // default target is currentCp
         Point target = currentCp.Position;
@@ -426,60 +426,57 @@ public class TargetFinder : ITargetFinding
         {
             if (inputContainer.DistanceToNextCheckPoint < 1500 &&
                 speed.GetSpeed(currentPosition) > 500)
-                // Target the next Checkpoint
-                target = nextCp.Position;
+                target = GetDesiredPoint(currentCp.Position, nextCp.Position, checkpointAftertNextCheckpoint.Position);
             else
-            {
-                // Get the vector to the currentCp
-                Vector vecToCurrentCp = new Vector(currentCp.Position.X - currentPosition.X,
-                    currentCp.Position.Y - currentPosition.Y);
-
-                // and the vector from the currentCp to the nextCp
-                Vector vecFromCurrentToNextCp = new Vector(nextCp.Position.X - currentCp.Position.X,
-                    nextCp.Position.Y - currentCp.Position.Y);
-
-                // Calculate the angle between these two vectors
-                double angle = angleCalculator.CalculateAngle(vecToCurrentCp, vecFromCurrentToNextCp);
-
-                // split this angle in half
-                double halfAngle = angle / 2;
-
-                // convert it into RAD
-                double angleInRad = halfAngle * (Math.PI / 180);
-
-                // Calculate directional vector to halfed angle
-                double cos = Math.Cos(angleInRad);
-                double sin = Math.Sin(angleInRad);
-
-                // calculate factor to 400px away from center
-                double fac1 = 400 / cos;
-                double fac2 = 400 / sin;
-                double factor = Math.Abs(fac1) <= Math.Abs(fac2) ? fac1 : fac2;
-
-                // calculate vector from directional vector and factor (width)
-                double x = cos * factor;
-                double y = sin * factor;
-
-                // Check x and y of vector for positive/negative values and adjust accordingly
-                if ((vecFromCurrentToNextCp.X > 0 && x < 0) ||
-                    (vecFromCurrentToNextCp.X < 0 && x > 0))
-                    x *= -1;
-                if ((vecFromCurrentToNextCp.Y > 0 && y < 0) ||
-                    (vecFromCurrentToNextCp.Y < 0 && y > 0))
-                    y *= -1;
-
-                // create vector to desired point from currentCp
-                int roundX = (int)Math.Round(x);
-                int roundY = (int)Math.Round(y);
-                Vector v = new Vector(roundX, roundY);
-                Point desiredPoint = new Point(currentCp.Position.X + v.X, currentCp.Position.Y + v.Y);
-
-                //target = currentCp.Position;
-                target = desiredPoint;
-            }
+                target = GetDesiredPoint(currentPosition, currentCp.Position, nextCp.Position);
         }
 
         return target;
+    }
+
+    private Point GetDesiredPoint(Point p1, Point p2, Point p3)
+    {
+        // Get the vector from p1 to p2
+        Vector vecToNextCp = new Vector(p2.X - p1.X, p2.Y - p1.Y);
+
+        // and the vector from p2 to p3
+        Vector vecFromNextToFollowingCp = new Vector(p3.X - p2.X, p3.Y - p2.Y);
+
+        // Calculate the angle between these two vectors
+        double angle = angleCalculator.CalculateAngle(vecToNextCp, vecFromNextToFollowingCp);
+
+        // split this angle in half
+        double halfAngle = angle / 2;
+
+        // convert it into RAD
+        double angleInRad = halfAngle * (Math.PI / 180);
+
+        // Calculate directional vector to halfed angle
+        double cos = Math.Cos(angleInRad);
+        double sin = Math.Sin(angleInRad);
+
+        // calculate factor to 400px away from center
+        double fac1 = 400 / cos;
+        double fac2 = 400 / sin;
+        double factor = Math.Abs(fac1) <= Math.Abs(fac2) ? fac1 : fac2;
+
+        // calculate vector from directional vector and factor (width)
+        double x = cos * factor;
+        double y = sin * factor;
+
+        // Check x and y of vector for positive/negative values and adjust accordingly
+        if ((vecFromNextToFollowingCp.X > 0 && x < 0) ||
+            (vecFromNextToFollowingCp.X < 0 && x > 0))
+            x *= -1;
+        if ((vecFromNextToFollowingCp.Y > 0 && y < 0) ||
+            (vecFromNextToFollowingCp.Y < 0 && y > 0))
+            y *= -1;
+
+        // create vector to desired point from currentCp
+        int roundX = (int)Math.Round(x);
+        int roundY = (int)Math.Round(y);
+        Vector v = new Vector(roundX, roundY);
+        return new Point(p2.X + v.X, p2.Y + v.Y);
     }
 }
 
