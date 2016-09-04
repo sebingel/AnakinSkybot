@@ -323,6 +323,8 @@ public class CheckpointMemory : ICheckpointMemory
 
     public Checkpoint GetCheckpointAtPosition(Point p, int threshold = 600)
     {
+        Console.Error.WriteLine(p);
+        knownCheckpoints.ForEach(x => Console.Error.WriteLine(x.Id + " " + x.Position));
         return
             knownCheckpoints.Find(
                 cp =>
@@ -458,7 +460,7 @@ public class TargetFinder : ITargetFinding
         double cos = Math.Cos(angleInRad);
         double sin = Math.Sin(angleInRad);
 
-        // calculate factor to 400px away from center
+        // calculate factor to 400pt away from center
         double fac1 = 400 / cos;
         double fac2 = 400 / sin;
         double factor = Math.Abs(fac1) <= Math.Abs(fac2) ? fac1 : fac2;
@@ -478,6 +480,8 @@ public class TargetFinder : ITargetFinding
         // create vector to desired point from currentCp
         int roundX = (int)Math.Round(x);
         int roundY = (int)Math.Round(y);
+        Console.Error.WriteLine("roundX: "+roundX);
+        Console.Error.WriteLine("roundY: " + roundY);
         Vector v = new Vector(roundX, roundY);
         return new Point(p2.X + v.X, p2.Y + v.Y);
     }
@@ -543,7 +547,7 @@ public class ThrustCalculator : IThrustCalculator
 
         // if we pass the boostCP -> BOOOOOST...
         if (checkpointMemory.AllCheckPointsKnown &&
-            checkpointMemory.GetCheckpointAtPosition(targetPosition).Id ==
+            checkpointMemory.GetCheckpointAtPosition(targetPosition)?.Id ==
             boostUseCalculator.GetBoostTargetCheckpoint().Id &&
             angleSlow < 5 &&
             distanceToNextCheckpoint > 4000 &&
