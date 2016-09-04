@@ -13,15 +13,17 @@ public class Player
         ICheckpointMemory checkpointMemory = new CheckpointMemory();
         IBoostUseCalculator boostUseCalculator = new BoostUseCalculator(checkpointMemory);
         ISpeedCalculator speedCalculator = new SpeedCalculator();
-        ITargetFinding targetFinding = new TargetFinder(checkpointMemory, inputContainer, speedCalculator);
-        IThrustCalculator thrustCalculator = new ThrustCalculator(checkpointMemory,boostUseCalculator);
+        IAngleCalculator angleCalculator = new AngleCalculator();
+        ITargetFinding targetFinding = new TargetFinder(checkpointMemory, inputContainer, speedCalculator,
+            angleCalculator);
+        IThrustCalculator thrustCalculator = new ThrustCalculator(checkpointMemory, boostUseCalculator, angleCalculator);
 
-        new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator,
-            speedCalculator, targetFinding, thrustCalculator);
+        new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator, targetFinding,
+            thrustCalculator);
     }
 
     public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser,
-        ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator, ISpeedCalculator speedCalculator,
+        ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator,
         ITargetFinding targetFinding, IThrustCalculator thrustCalculator)
     {
         // Game Loop
@@ -81,7 +83,7 @@ public class Player
 
             #region target finding
 
-            Point target = targetFinding.GetTarget(inputContainer.PlayerPosition, currentCp, nextCp);
+            Point target = targetFinding.GetTarget(inputContainer.PlayerPosition, currentCp, nextCp, cpAfterNextCp);
 
             #endregion
 
@@ -158,6 +160,34 @@ public class Checkpoint
 
     public Checkpoint(int id, Point position) : this(id, position.X, position.Y)
     {}
+}
+
+public class Vector
+{
+    public int X { get; }
+    public int Y { get; }
+    //public int Length { get; set; }
+
+    public Vector(int x, int y)
+    {
+        X = x;
+        Y = y;
+    }
+
+    #region Overrides of Object
+
+    /// <summary>
+    /// Gibt eine Zeichenfolge zurück, die das aktuelle Objekt darstellt.
+    /// </summary>
+    /// <returns>
+    /// Eine Zeichenfolge, die das aktuelle Objekt darstellt.
+    /// </returns>
+    public override string ToString()
+    {
+        return $"{X}:{Y}";
+    }
+
+    #endregion
 }
 
 public interface IInputContainer
@@ -365,7 +395,8 @@ public class SpeedCalculator : ISpeedCalculator
 
 public interface ITargetFinding
 {
-    Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp);
+    Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp,
+        Checkpoint checkpointAftrtNextCheckpoint);
 }
 
 public class TargetFinder : ITargetFinding
@@ -373,22 +404,80 @@ public class TargetFinder : ITargetFinding
     private readonly ICheckpointMemory checkpointMemory;
     private readonly IInputContainer inputContainer;
     private readonly ISpeedCalculator speed;
+    private readonly IAngleCalculator angleCalculator;
 
-    public TargetFinder(ICheckpointMemory checkpointMemory, IInputContainer inputContainer, ISpeedCalculator speed)
+    public TargetFinder(ICheckpointMemory checkpointMemory, IInputContainer inputContainer, ISpeedCalculator speed,
+        IAngleCalculator angleCalculator)
     {
         this.checkpointMemory = checkpointMemory;
         this.inputContainer = inputContainer;
         this.speed = speed;
+        this.angleCalculator = angleCalculator;
     }
 
-    public Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp)
+    public Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp,
+        Checkpoint checkpointAftrtNextCheckpoint)
     {
+        // default target is currentCp
         Point target = currentCp.Position;
 
-        if (checkpointMemory.AllCheckPointsKnown &&
-            inputContainer.DistanceToNextCheckPoint < 1500 &&
-            speed.GetSpeed(currentPosition) > 500)
-            target = nextCp.Position;
+        // If we know all Checkpoints we can calculate alternative targets
+        if (checkpointMemory.AllCheckPointsKnown)
+        {
+            if (inputContainer.DistanceToNextCheckPoint < 1500 &&
+                speed.GetSpeed(currentPosition) > 500)
+                // Target the next Checkpoint
+                target = nextCp.Position;
+            else
+            {
+                // Get the vector to the currentCp
+                Vector vecToCurrentCp = new Vector(currentCp.Position.X - currentPosition.X,
+                    currentCp.Position.Y - currentPosition.Y);
+
+                // and the vector from the currentCp to the nextCp
+                Vector vecFromCurrentToNextCp = new Vector(nextCp.Position.X - currentCp.Position.X,
+                    nextCp.Position.Y - currentCp.Position.Y);
+
+                // Calculate the angle between these two vectors
+                double angle = angleCalculator.CalculateAngle(vecToCurrentCp, vecFromCurrentToNextCp);
+
+                // split this angle in half
+                double halfAngle = angle / 2;
+
+                // convert it into RAD
+                double angleInRad = halfAngle * (Math.PI / 180);
+
+                // Calculate directional vector to halfed angle
+                double cos = Math.Cos(angleInRad);
+                double sin = Math.Sin(angleInRad);
+
+                // calculate factor to 400px away from center
+                double fac1 = 400 / cos;
+                double fac2 = 400 / sin;
+                double factor = Math.Abs(fac1) <= Math.Abs(fac2) ? fac1 : fac2;
+
+                // calculate vector from directional vector and factor (width)
+                double x = cos * factor;
+                double y = sin * factor;
+
+                // Check x and y of vector for positive/negative values and adjust accordingly
+                if ((vecFromCurrentToNextCp.X > 0 && x < 0) ||
+                    (vecFromCurrentToNextCp.X < 0 && x > 0))
+                    x *= -1;
+                if ((vecFromCurrentToNextCp.Y > 0 && y < 0) ||
+                    (vecFromCurrentToNextCp.Y < 0 && y > 0))
+                    y *= -1;
+
+                // create vector to desired point from currentCp
+                int roundX = (int)Math.Round(x);
+                int roundY = (int)Math.Round(y);
+                Vector v = new Vector(roundX, roundY);
+                Point desiredPoint = new Point(currentCp.Position.X + v.X, currentCp.Position.Y + v.Y);
+
+                //target = currentCp.Position;
+                target = desiredPoint;
+            }
+        }
 
         return target;
     }
@@ -404,13 +493,16 @@ public class ThrustCalculator : IThrustCalculator
 {
     private readonly ICheckpointMemory checkpointMemory;
     private readonly IBoostUseCalculator boostUseCalculator;
+    private readonly IAngleCalculator angleCalculator;
     private Point? lastPosition;
     private bool boost;
 
-    public ThrustCalculator(ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator)
+    public ThrustCalculator(ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator,
+        IAngleCalculator angleCalculator)
     {
         this.checkpointMemory = checkpointMemory;
         this.boostUseCalculator = boostUseCalculator;
+        this.angleCalculator = angleCalculator;
         boost = false;
     }
 
@@ -431,16 +523,13 @@ public class ThrustCalculator : IThrustCalculator
             nextCheckpointLocation != null)
         {
             // calculate slow down value for current vector angle to next checkpointnex
-            int currentVectorX = playerPosition.X - lastPosition.Value.X;
-            int currentVectorY = playerPosition.Y - lastPosition.Value.Y;
-            int nextCpVectorX = playerPosition.X - nextCheckpointLocation.Value.X;
-            int nextCpVectorY = playerPosition.Y - nextCheckpointLocation.Value.Y;
+            Vector currentVector = new Vector(playerPosition.X - lastPosition.Value.X,
+                playerPosition.Y - lastPosition.Value.Y);
+            Vector nextCpVector = new Vector(playerPosition.X - nextCheckpointLocation.Value.X,
+                playerPosition.Y - nextCheckpointLocation.Value.Y);
 
-            double currentVectorAngle = Math.Acos((currentVectorX * nextCpVectorX + currentVectorY * nextCpVectorY) /
-                                                  Math.Pow(
-                                                      (Math.Pow(currentVectorX, 2) + Math.Pow(currentVectorY, 2)) *
-                                                      (Math.Pow(nextCpVectorX, 2) + Math.Pow(nextCpVectorY, 2)), 0.5)) *
-                                        (180.0 / Math.PI);
+            double currentVectorAngle = angleCalculator.CalculateAngle(currentVector, nextCpVector);
+
             if (currentVectorAngle > 10)
                 angleSlow += (int)Math.Round(currentVectorAngle - 10) / 10;
         }
@@ -467,4 +556,30 @@ public class ThrustCalculator : IThrustCalculator
 
         return sThrust;
     }
+}
+
+public interface IAngleCalculator
+{
+    double CalculateAngle(Vector vec1, Vector vc2);
+}
+
+public class AngleCalculator : IAngleCalculator
+{
+    #region Implementation of IAngleCalculator
+
+    public double CalculateAngle(Vector vec1, Vector vec2)
+    {
+        double d = (vec1.X * vec2.X + vec1.Y * vec2.Y) /
+                   Math.Pow(
+                       (Math.Pow(vec1.X, 2) + Math.Pow(vec1.Y, 2)) *
+                       (Math.Pow(vec2.X, 2) + Math.Pow(vec2.Y, 2)), 0.5);
+
+        double acos = Math.Acos(d);
+
+        double angle = acos * (180.0 / Math.PI);
+
+        return angle;
+    }
+
+    #endregion
 }
