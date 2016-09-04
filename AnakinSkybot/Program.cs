@@ -10,19 +10,20 @@ public class Player
     {
         IInputContainer inputContainer = new InputContainer(new ConsoleInputGetter());
         IInitialCheckpointGuesser initialCheckpointGuesser = new InitialCheckpointGuesser(inputContainer);
-        ICheckpointMemory iCheckpointMemory = new CheckpointMemory();
-        IBoostUseCalculator boostUseCalculator = new BoostUseCalculator(iCheckpointMemory);
+        ICheckpointMemory checkpointMemory = new CheckpointMemory();
+        IBoostUseCalculator boostUseCalculator = new BoostUseCalculator(checkpointMemory);
+        ISpeedCalculator speedCalculator = new SpeedCalculator();
+        ITargetFinding targetFinding = new TargetFinder(checkpointMemory, inputContainer, speedCalculator);
+        IThrustCalculator thrustCalculator = new ThrustCalculator(checkpointMemory,boostUseCalculator);
 
-        new Player().Start(inputContainer, initialCheckpointGuesser, iCheckpointMemory, boostUseCalculator);
+        new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator,
+            speedCalculator, targetFinding, thrustCalculator);
     }
 
     public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser,
-        ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator)
+        ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator, ISpeedCalculator speedCalculator,
+        ITargetFinding targetFinding, IThrustCalculator thrustCalculator)
     {
-        bool boost = false;
-        int speed = -1;
-        Point lastPosition = new Point(-1, -1);
-
         // Game Loop
         while (true)
         {
@@ -59,91 +60,42 @@ public class Player
                 checkpointMemory.AllCheckPointsKnown = true;
             }
 
+            Checkpoint nextCp = null;
+            Checkpoint cpAfterNextCp = null;
+            if (checkpointMemory.AllCheckPointsKnown)
+            {
+                nextCp = checkpointMemory.KnownCheckpoints.ToList().Find(x => x.Id == currentCp.Id + 1) ??
+                         checkpointMemory.KnownCheckpoints[0];
+
+                cpAfterNextCp = checkpointMemory.KnownCheckpoints.ToList().Find(x => x.Id == nextCp.Id + 1) ??
+                                checkpointMemory.KnownCheckpoints[0];
+            }
+
             #endregion
 
             #region speed calculations
 
-            if (lastPosition.X != -1 &&
-                lastPosition.Y != -1)
-            {
-                speed = Math.Abs(inputContainer.PlayerPosition.X - lastPosition.X) +
-                        Math.Abs(inputContainer.PlayerPosition.Y - lastPosition.Y);
-            }
+            //int speed = speedCalculator.GetSpeed(inputContainer.PlayerPosition);
 
             #endregion
 
             #region target finding
 
-            int nextTargetX = inputContainer.NextCheckpointLocation.X;
-            int nextTargetY = inputContainer.NextCheckpointLocation.Y;
-
-            if (checkpointMemory.AllCheckPointsKnown &&
-                inputContainer.DistanceToNextCheckPoint < 1500 &&
-                speed > 500)
-            {
-                Console.Error.WriteLine("currentCP: " + currentCp.Id);
-                var nextTargetCp = checkpointMemory.KnownCheckpoints.ToList().Find(cp => cp.Id == currentCp.Id + 1);
-                if (nextTargetCp == null)
-                    nextTargetCp = checkpointMemory.KnownCheckpoints[0];
-                Console.Error.WriteLine("nextTargetCP: " + nextTargetCp.Id);
-
-                nextTargetX = nextTargetCp.Position.X;
-                nextTargetY = nextTargetCp.Position.Y;
-            }
+            Point target = targetFinding.GetTarget(inputContainer.PlayerPosition, currentCp, nextCp);
 
             #endregion
 
             #region thrust calculations
 
-            // calculate slow down value for distance to next target
-            int nextTargetDist = Math.Abs(inputContainer.NextCheckpointLocation.X - inputContainer.PlayerPosition.X) +
-                                 Math.Abs(inputContainer.NextCheckpointLocation.Y - inputContainer.PlayerPosition.Y);
-            int distSlow = 0;
-            if (nextTargetDist < 2000)
-                distSlow = (2000 - nextTargetDist) / 20;
-
-            // calculate slow down value for angle to next checkpoint
-            int angleSlow = 0;
-            if (Math.Abs(inputContainer.AngleToNextCheckPoint) > 10)
-                angleSlow = (Math.Abs(inputContainer.AngleToNextCheckPoint) - 10) /** * 10 / 10 **/;
-
-            // calculate slow down value for current vector angle to next checkpoint
-            int currentVectorX = inputContainer.NextCheckpointLocation.X - lastPosition.X;
-            int currentVectorY = inputContainer.NextCheckpointLocation.Y - lastPosition.Y;
-            int nextCpVectorX = inputContainer.NextCheckpointLocation.X - inputContainer.NextCheckpointLocation.X;
-            int nextCpVectorY = inputContainer.NextCheckpointLocation.Y - inputContainer.NextCheckpointLocation.Y;
-
-            double currentVectorAngle = Math.Acos((currentVectorX * nextCpVectorX + currentVectorY * nextCpVectorY) /
-                                                  Math.Pow(
-                                                      (Math.Pow(currentVectorX, 2) + Math.Pow(currentVectorY, 2)) *
-                                                      (Math.Pow(nextCpVectorX, 2) + Math.Pow(nextCpVectorY, 2)), 0.5)) *
-                                        (180.0 / Math.PI);
-            if (currentVectorAngle > 10)
-                angleSlow += (int)Math.Round(currentVectorAngle - 10) / 10;
-
-            // calculate thrust
-            int thrust = 100 - distSlow - angleSlow;
-            if (thrust < 5)
-                thrust = 5;
-
-            string sThrust = thrust.ToString();
-
-            // if we pass the boostCP -> BOOOOOST...
-            if (checkpointMemory.AllCheckPointsKnown &&
-                inputContainer.NextCheckpointLocation == boostUseCalculator.GetBoostTargetCheckpoint().Position &&
-                angleSlow == 0 &&
-                inputContainer.DistanceToNextCheckPoint > 4000 &&
-                !boost)
-            {
-                sThrust = "BOOST";
-                boost = true;
-            }
+            string sThrust =
+                thrustCalculator.GetThrust(inputContainer.DistanceToNextCheckPoint, inputContainer.AngleToNextCheckPoint,
+                    inputContainer.PlayerPosition, nextCp?.Position);
 
             #endregion
 
             #region status messages
 
-            if (true)
+            if (false)
             {
                 foreach (var cp in checkpointMemory.KnownCheckpoints)
                     Console.Error.WriteLine(cp.Id + " " + cp.Position.X + " " + cp.Position.Y + " " + cp.DistToNext);
@@ -156,34 +108,36 @@ public class Player
 
                 Console.Error.WriteLine("nextCheckpointAngle: " + inputContainer.AngleToNextCheckPoint);
 
-                Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
+                //Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
 
-                Console.Error.WriteLine("currentVectorX: " + currentVectorX);
-                Console.Error.WriteLine("currentVectorY: " + currentVectorY);
+                //Console.Error.WriteLine("currentVectorX: " + currentVectorX);
+                //Console.Error.WriteLine("currentVectorY: " + currentVectorY);
 
-                Console.Error.WriteLine("nextCpVectorX: " + nextCpVectorX);
-                Console.Error.WriteLine("nextCpVectorY: " + nextCpVectorY);
+                //Console.Error.WriteLine("nextCpVectorX: " + nextCpVectorX);
+                //Console.Error.WriteLine("nextCpVectorY: " + nextCpVectorY);
 
-                Console.Error.WriteLine("lastPosition: " + lastPosition);
-                Console.Error.WriteLine("currentPosition: " + inputContainer.PlayerPosition);
+                //Console.Error.WriteLine("lastPosition: " + lastPosition);
+                //Console.Error.WriteLine("currentPosition: " + inputContainer.PlayerPosition);
 
-                Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
-                Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
+                //Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
+                //Console.Error.WriteLine("currentVectorAngle: " + currentVectorAngle);
 
-                Console.Error.WriteLine("distSlow: " + distSlow);
+                //Console.Error.WriteLine("distSlow: " + distSlow);
 
-                Console.Error.WriteLine("angleSlow: " + angleSlow);
+                //Console.Error.WriteLine("angleSlow: " + angleSlow);
 
                 Console.Error.WriteLine("boostCpId: " + boostUseCalculator.GetBoostTargetCheckpoint().Id);
 
-                Console.Error.WriteLine("thrust: " + thrust);
+                //Console.Error.WriteLine("thrust: " + thrust);
+
+                Console.Error.WriteLine("currentCP: " + currentCp.Id);
+
+                Console.Error.WriteLine("nextCP: " + nextCp?.Id);
             }
 
             #endregion
 
-            lastPosition = inputContainer.PlayerPosition;
-
-            Console.WriteLine(nextTargetX + " " + nextTargetY + " " + sThrust);
+            Console.WriteLine(target.X + " " + target.Y + " " + sThrust);
         }
     }
 }
@@ -387,5 +341,130 @@ public class BoostUseCalculator : IBoostUseCalculator
         // find and return next Checkpoint (the Checkpoint to boost to)
         Checkpoint boostCheckpoint = checkpointMemory.KnownCheckpoints.ToList().Find(x => x.Id == boostCpId + 1);
         return boostCheckpoint ?? checkpointMemory.KnownCheckpoints[0];
+    }
+}
+
+public interface ISpeedCalculator
+{
+    int GetSpeed(Point currentPosition);
+}
+
+public class SpeedCalculator : ISpeedCalculator
+{
+    private Point lastPosition;
+
+    public int GetSpeed(Point currentPosition)
+    {
+        int speed = Math.Abs(currentPosition.X - lastPosition.X) + Math.Abs(currentPosition.Y - lastPosition.Y);
+
+        lastPosition = currentPosition;
+
+        return speed;
+    }
+}
+
+public interface ITargetFinding
+{
+    Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp);
+}
+
+public class TargetFinder : ITargetFinding
+{
+    private readonly ICheckpointMemory checkpointMemory;
+    private readonly IInputContainer inputContainer;
+    private readonly ISpeedCalculator speed;
+
+    public TargetFinder(ICheckpointMemory checkpointMemory, IInputContainer inputContainer, ISpeedCalculator speed)
+    {
+        this.checkpointMemory = checkpointMemory;
+        this.inputContainer = inputContainer;
+        this.speed = speed;
+    }
+
+    public Point GetTarget(Point currentPosition, Checkpoint currentCp, Checkpoint nextCp)
+    {
+        Point target = currentCp.Position;
+
+        if (checkpointMemory.AllCheckPointsKnown &&
+            inputContainer.DistanceToNextCheckPoint < 1500 &&
+            speed.GetSpeed(currentPosition) > 500)
+            target = nextCp.Position;
+
+        return target;
+    }
+}
+
+public interface IThrustCalculator
+{
+    string GetThrust(int distanceToNextCheckpoint, int angleToNextCheckpoint, Point playerPosition,
+        Point? nextCheckpointLocation);
+}
+
+public class ThrustCalculator : IThrustCalculator
+{
+    private readonly ICheckpointMemory checkpointMemory;
+    private readonly IBoostUseCalculator boostUseCalculator;
+    private Point? lastPosition;
+    private bool boost;
+
+    public ThrustCalculator(ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator)
+    {
+        this.checkpointMemory = checkpointMemory;
+        this.boostUseCalculator = boostUseCalculator;
+        boost = false;
+    }
+
+    public string GetThrust(int distanceToNextCheckpoint, int angleToNextCheckpoint, Point playerPosition,
+        Point? nextCheckpointLocation)
+    {
+        // calculate slow down value for distance to next target
+        int distSlow = 0;
+        if (distanceToNextCheckpoint < 2000)
+            distSlow = (2000 - distanceToNextCheckpoint) / 20;
+
+        // calculate slow down value for angle to next checkpoint
+        int angleSlow = 0;
+        if (Math.Abs(angleToNextCheckpoint) > 10)
+            angleSlow = (Math.Abs(angleToNextCheckpoint) - 10) /** * 10 / 10 **/;
+
+        if (lastPosition != null &&
+            nextCheckpointLocation != null)
+        {
+            // calculate slow down value for current vector angle to next checkpointnex
+            int currentVectorX = playerPosition.X - lastPosition.Value.X;
+            int currentVectorY = playerPosition.Y - lastPosition.Value.Y;
+            int nextCpVectorX = playerPosition.X - nextCheckpointLocation.Value.X;
+            int nextCpVectorY = playerPosition.Y - nextCheckpointLocation.Value.Y;
+
+            double currentVectorAngle = Math.Acos((currentVectorX * nextCpVectorX + currentVectorY * nextCpVectorY) /
+                                                  Math.Pow(
+                                                      (Math.Pow(currentVectorX, 2) + Math.Pow(currentVectorY, 2)) *
+                                                      (Math.Pow(nextCpVectorX, 2) + Math.Pow(nextCpVectorY, 2)), 0.5)) *
+                                        (180.0 / Math.PI);
+            if (currentVectorAngle > 10)
+                angleSlow += (int)Math.Round(currentVectorAngle - 10) / 10;
+        }
+
+        // calculate thrust
+        int thrust = 100 - distSlow - angleSlow;
+        if (thrust < 5)
+            thrust = 5;
+
+        string sThrust = thrust.ToString();
+
+        // if we pass the boostCP -> BOOOOOST...
+        if (checkpointMemory.AllCheckPointsKnown &&
+            nextCheckpointLocation == boostUseCalculator.GetBoostTargetCheckpoint().Position &&
+            angleSlow == 0 &&
+            distanceToNextCheckpoint > 4000 &&
+            !boost)
+        {
+            sThrust = "BOOST";
+            boost = true;
+        }
+
+        lastPosition = playerPosition;
+
+        return sThrust;
     }
 }
