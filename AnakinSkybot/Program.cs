@@ -477,11 +477,11 @@ public class SmartTargetFinder : ITargetFinding
         // convert it into RAD
         double angleInRad = halfAngle * (Math.PI / 180);
 
-        // Calculate directional vector to halfed angle
+        // calculate directional vector to bisected angle
         double cos = Math.Cos(angleInRad);
         double sin = Math.Sin(angleInRad);
 
-        // calculate factor to 400pt away from center
+        // calculate factor to 300 units away from center
         double fac1 = 300 / cos;
         double fac2 = 300 / sin;
         double factor = Math.Abs(fac1) <= Math.Abs(fac2) ? fac1 : fac2;
@@ -491,6 +491,7 @@ public class SmartTargetFinder : ITargetFinding
         double y = sin * factor;
 
         // Check x and y of vector for positive/negative values and adjust accordingly
+        // with this operation we want to find the optimal point to aim at
         if ((vecFromNextToFollowingCp.X > 0 && x < 0) ||
             (vecFromNextToFollowingCp.X < 0 && x > 0))
             x *= -1;
@@ -501,9 +502,23 @@ public class SmartTargetFinder : ITargetFinding
         // create vector to desired point from currentCp
         int roundX = (int)Math.Round(x);
         int roundY = (int)Math.Round(y);
-        //Console.Error.WriteLine("roundX: " + roundX);
-        //Console.Error.WriteLine("roundY: " + roundY);
         Vector v = new Vector(roundX, roundY);
+
+        Console.Error.WriteLine(v);
+
+        // if we are further away fromthe checkpoint than one third of the distance to the last checkpoint...
+        Checkpoint currentCheckpoint = checkpointMemory.GetCheckpointAtPosition(new Point(p2.X, p2.Y));
+        Checkpoint lastCheckpoint =
+            checkpointMemory.KnownCheckpoints.ToList().Find(a => a.Id == currentCheckpoint.Id - 1) ??
+            checkpointMemory.KnownCheckpoints[checkpointMemory.KnownCheckpoints.Count - 1];
+        if (inputContainer.DistanceToNextCheckPoint >
+            lastCheckpoint.DistToNext / 3)
+        {
+            // ... we aim at the opposite side
+            v = new Vector(-roundX, -roundY);
+            Console.Error.WriteLine($"opposite side: {v}");
+        }
+
         return new Point(p2.X + v.X, p2.Y + v.Y);
     }
 }
@@ -548,23 +563,27 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
             distSlow = (2000 - distanceToNextCheckpoint) / 20;
 
         // slowdown value based on angle to next checkpoint and proximity
-        //if (lastPosition != null &&
-        //    distanceToNextCheckpoint < 4000)
-        //{
-        //    // calculate slow down value for current vector angle to target
-        //    Vector currentVector = new Vector(playerPosition.X - lastPosition.Value.X,
-        //        playerPosition.Y - lastPosition.Value.Y);
-        //    Vector targetVector = new Vector(targetPosition.X - playerPosition.X, targetPosition.Y - playerPosition.Y);
+        if (lastPosition != null &&
+            distanceToNextCheckpoint < 4000)
+        {
+            // calculate slow down value for current vector angle to target
+            Vector currentVector = new Vector(playerPosition.X - lastPosition.Value.X,
+                playerPosition.Y - lastPosition.Value.Y);
+            Vector targetVector = new Vector(targetPosition.X - playerPosition.X, targetPosition.Y - playerPosition.Y);
 
-        //    distSlow += (int)Math.Round(angleSlowDownCalculator.CalculateSlowDown(currentVector, targetVector));
-        //}
+            distSlow +=
+                (int)
+                    Math.Round(
+                        angleSlowDownCalculator.CalculateSlowDown(angleCalculator.CalculateAngle(currentVector,
+                            targetVector)));
+        }
 
         // calculate slow down value for angle to next checkpoint
         angleSlow = (int)Math.Round(angleSlowDownCalculator.CalculateSlowDown(angleToNextCheckpoint));
 
         // calculate thrust
         int thrust = 100 - distSlow - angleSlow;
-        Console.Error.WriteLine($"{thrust} = 100 - {distSlow} - {angleSlow}");
+        //Console.Error.WriteLine($"{thrust} = 100 - {distSlow} - {angleSlow}");
         if (thrust < 5)
             thrust = 5;
         else if (thrust > 100)
@@ -628,7 +647,7 @@ public class LinearAngleSlowDownCalculator : IAngleSlowDownCalculator
     public double CalculateSlowDown(double angle)
     {
         double angleSlow = 0.91 * Math.Abs(angle) - 8;
-        Console.Error.WriteLine($"angle: {angle}, angleSlow: {angleSlow}");
+        //Console.Error.WriteLine($"angle: {angle}, angleSlow: {angleSlow}");
         return angleSlow < 0 ? 0 : angleSlow;
     }
 
