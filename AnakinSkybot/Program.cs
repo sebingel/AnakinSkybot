@@ -562,21 +562,21 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
             distanceToNextCheckpoint < 2000)
             distSlow = (2000 - distanceToNextCheckpoint) / 20;
 
-        // slowdown value based on angle to next checkpoint and proximity
-        if (lastPosition != null &&
-            distanceToNextCheckpoint < 4000)
-        {
-            // calculate slow down value for current vector angle to target
-            Vector currentVector = new Vector(playerPosition.X - lastPosition.Value.X,
-                playerPosition.Y - lastPosition.Value.Y);
-            Vector targetVector = new Vector(targetPosition.X - playerPosition.X, targetPosition.Y - playerPosition.Y);
+        //// slowdown value based on angle to next checkpoint and proximity
+        //if (lastPosition != null &&
+        //    distanceToNextCheckpoint < 4000)
+        //{
+        //    // calculate slow down value for current vector angle to target
+        //    Vector currentVector = new Vector(playerPosition.X - lastPosition.Value.X,
+        //        playerPosition.Y - lastPosition.Value.Y);
+        //    Vector targetVector = new Vector(targetPosition.X - playerPosition.X, targetPosition.Y - playerPosition.Y);
 
-            distSlow +=
-                (int)
-                    Math.Round(
-                        angleSlowDownCalculator.CalculateSlowDown(angleCalculator.CalculateAngle(currentVector,
-                            targetVector)));
-        }
+        //    distSlow +=
+        //        (int)
+        //            Math.Round(
+        //                angleSlowDownCalculator.CalculateSlowDown(angleCalculator.CalculateAngle(currentVector,
+        //                    targetVector)));
+        //}
 
         // calculate slow down value for angle to next checkpoint
         angleSlow = (int)Math.Round(angleSlowDownCalculator.CalculateSlowDown(angleToNextCheckpoint));
