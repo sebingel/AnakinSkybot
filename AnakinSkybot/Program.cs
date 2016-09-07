@@ -19,12 +19,14 @@ public class Player
             angleCalculator);
         //ITargetFinding targetFinding = new SimpleTargetFinder();
 
-        IAngleSlowDownCalculator angleSlowDownCalculator = new LinearAngleSlowDownCalculator();
-        //IAngleSlowDownCalculator angleSlowDownCalculator = new SimpleAngleSlowDownCalculator();
+        ISlowDownCalculator distanceSlowDownCalculator = new SimpleDistanceSlowDownCalculator(null, checkpointMemory,
+            inputContainer);
+        ISlowDownCalculator slowDownCalculator = new LinearAngleSlowDownCalculator(distanceSlowDownCalculator, inputContainer);
+        //ISlowDownCalculator slowDownCalculator = new SimpleAngleSlowDownCalculator(null,inputContainer);
 
         IThrustCalculator thrustCalculator = new AngleAndDistThrustCalculator(checkpointMemory, boostUseCalculator,
             angleCalculator,
-            angleSlowDownCalculator);
+            slowDownCalculator);
 
         new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator, targetFinding,
             thrustCalculator);
@@ -534,34 +536,24 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
     private readonly ICheckpointMemory checkpointMemory;
     private readonly IBoostUseCalculator boostUseCalculator;
     private readonly IAngleCalculator angleCalculator;
-    private readonly IAngleSlowDownCalculator angleSlowDownCalculator;
+    private readonly ISlowDownCalculator slowDownCalculator;
     private Point? lastPosition;
     private bool boost;
 
     public AngleAndDistThrustCalculator(ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator,
         IAngleCalculator angleCalculator,
-        IAngleSlowDownCalculator angleSlowDownCalculator)
+        ISlowDownCalculator slowDownCalculator)
     {
         this.checkpointMemory = checkpointMemory;
         this.boostUseCalculator = boostUseCalculator;
         this.angleCalculator = angleCalculator;
-        this.angleSlowDownCalculator = angleSlowDownCalculator;
+        this.slowDownCalculator = slowDownCalculator;
         boost = false;
     }
 
     public string GetThrust(int distanceToNextCheckpoint, int angleToNextCheckpoint, Point playerPosition,
         Point targetPosition)
     {
-        // slowdown value for distance
-        int distSlow = 0;
-        // slowdown value for angle
-        int angleSlow = 0;
-
-        // if we do not know every checkpoint (first round) we will slow down automatically when we reach a checkpoint
-        if (!checkpointMemory.AllCheckPointsKnown &&
-            distanceToNextCheckpoint < 2000)
-            distSlow = (2000 - distanceToNextCheckpoint) / 20;
-
         //// slowdown value based on angle to next checkpoint and proximity
         //if (lastPosition != null &&
         //    distanceToNextCheckpoint < 4000)
@@ -574,16 +566,16 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
         //    distSlow +=
         //        (int)
         //            Math.Round(
-        //                angleSlowDownCalculator.CalculateSlowDown(angleCalculator.CalculateAngle(currentVector,
+        //                slowDownCalculator.CalculateSlowDown(angleCalculator.CalculateAngle(currentVector,
         //                    targetVector)));
         //}
 
         // calculate slow down value for angle to next checkpoint
-        angleSlow = (int)Math.Round(angleSlowDownCalculator.CalculateSlowDown(angleToNextCheckpoint));
+        int slowDownValue = (int)Math.Round(slowDownCalculator.CalculateSlowDown());
 
         // calculate thrust
-        int thrust = 100 - distSlow - angleSlow;
-        //Console.Error.WriteLine($"{thrust} = 100 - {distSlow} - {angleSlow}");
+        int thrust = 100 - slowDownValue;
+
         if (thrust < 30)
             thrust = 30;
         else if (thrust > 100)
@@ -595,7 +587,7 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
         if (checkpointMemory.AllCheckPointsKnown &&
             checkpointMemory.GetCheckpointAtPosition(targetPosition)?.Id ==
             boostUseCalculator.GetBoostTargetCheckpoint().Id &&
-            angleSlow < 5 &&
+            slowDownValue < 5 &&
             distanceToNextCheckpoint > 4000 &&
             !boost)
         {
@@ -635,35 +627,93 @@ public class AngleCalculator : IAngleCalculator
     #endregion
 }
 
-public interface IAngleSlowDownCalculator
+public interface ISlowDownCalculator
 {
-    double CalculateSlowDown(double angle);
+    double CalculateSlowDown();
 }
 
-public class LinearAngleSlowDownCalculator : IAngleSlowDownCalculator
+public class LinearAngleSlowDownCalculator : ISlowDownCalculator
 {
-    #region Implementation of IAngleSlowDownCalculator
+    private readonly ISlowDownCalculator slowDownCalculator;
+    private readonly IInputContainer inputContainer;
 
-    public double CalculateSlowDown(double angle)
+    public LinearAngleSlowDownCalculator(ISlowDownCalculator slowDownCalculator, IInputContainer inputContainer)
     {
-        double angleSlow = 0.91 * Math.Abs(angle) - 8;
+        this.slowDownCalculator = slowDownCalculator;
+        this.inputContainer = inputContainer;
+    }
+
+    #region Implementation of ISlowDownCalculator
+
+    public double CalculateSlowDown()
+    {
+        double angleSlow = 0.91 * Math.Abs(inputContainer.AngleToNextCheckPoint) - 8;
         //Console.Error.WriteLine($"angle: {angle}, angleSlow: {angleSlow}");
-        return angleSlow < 0 ? 0 : angleSlow;
+        angleSlow = angleSlow < 0 ? 0 : angleSlow;
+
+        if (slowDownCalculator != null)
+            angleSlow += slowDownCalculator.CalculateSlowDown();
+
+        return angleSlow;
     }
 
     #endregion
 }
 
-public class SimpleAngleSlowDownCalculator : IAngleSlowDownCalculator
+public class SimpleAngleSlowDownCalculator : ISlowDownCalculator
 {
-    #region Implementation of IAngleSlowDownCalculator
+    private readonly ISlowDownCalculator slowDownCalculator;
+    private readonly IInputContainer inputContainer;
 
-    public double CalculateSlowDown(double angle)
+    public SimpleAngleSlowDownCalculator(ISlowDownCalculator slowDownCalculator, IInputContainer inputContainer)
+    {
+        this.slowDownCalculator = slowDownCalculator;
+        this.inputContainer = inputContainer;
+    }
+
+    #region Implementation of ISlowDownCalculator
+
+    public double CalculateSlowDown()
     {
         double angleSlow = 0;
-        if (angle > 10)
-            angleSlow = (angle - 10) * 10 / 15;
+        if (inputContainer.AngleToNextCheckPoint > 10)
+            angleSlow = (inputContainer.AngleToNextCheckPoint - 10d) * 10 / 15;
+        if (slowDownCalculator != null)
+            angleSlow += slowDownCalculator.CalculateSlowDown();
         return angleSlow;
+    }
+
+    #endregion
+}
+
+public class SimpleDistanceSlowDownCalculator : ISlowDownCalculator
+{
+    private readonly ISlowDownCalculator slowDownCalculator;
+    private readonly ICheckpointMemory checkpointMemory;
+    private readonly IInputContainer inputContainer;
+
+    public SimpleDistanceSlowDownCalculator(ISlowDownCalculator slowDownCalculator, ICheckpointMemory checkpointMemory,
+        IInputContainer inputContainer)
+    {
+        this.slowDownCalculator = slowDownCalculator;
+        this.checkpointMemory = checkpointMemory;
+        this.inputContainer = inputContainer;
+    }
+
+    #region Implementation of ISlowDownCalculator
+
+    public double CalculateSlowDown()
+    {
+        double distSlow = 0;
+
+        if (!checkpointMemory.AllCheckPointsKnown &&
+            inputContainer.DistanceToNextCheckPoint < 2000)
+            distSlow = (2000d - inputContainer.DistanceToNextCheckPoint) / 20;
+
+        if (slowDownCalculator != null)
+            distSlow += slowDownCalculator.CalculateSlowDown();
+
+        return distSlow;
     }
 
     #endregion
