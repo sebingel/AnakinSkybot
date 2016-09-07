@@ -584,8 +584,8 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
         // calculate thrust
         int thrust = 100 - distSlow - angleSlow;
         //Console.Error.WriteLine($"{thrust} = 100 - {distSlow} - {angleSlow}");
-        if (thrust < 5)
-            thrust = 5;
+        if (thrust < 30)
+            thrust = 30;
         else if (thrust > 100)
             thrust = 100;
 
