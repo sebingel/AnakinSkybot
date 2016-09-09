@@ -29,19 +29,24 @@ public class Player
             angleCalculator,
             slowDownCalculator);
 
+        IGamestateCalculator gamestateCalculator = new GamestateCalculator(inputContainer);
+
         new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator, targetFinding,
-            thrustCalculator, speedCalculator);
+            thrustCalculator, speedCalculator, gamestateCalculator);
     }
 
     public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser,
         ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator,
-        ITargetFinding targetFinding, IThrustCalculator thrustCalculator, ISpeedCalculator speedCalculator)
+        ITargetFinding targetFinding, IThrustCalculator thrustCalculator, ISpeedCalculator speedCalculator,
+        IGamestateCalculator gamestateCalculator)
     {
         // Game Loop
         while (true)
         {
             // Update input on start of each round
             inputContainer.Update();
+
+            gamestateCalculator.Recalculate();
 
             #region Checkpoint calculations
 
@@ -745,18 +750,58 @@ public class GameState
 {
     public int TickOffset { get; private set; }
 
-    public Point MyPosition { get; private set; }
+    public Point PlayerPosition { get; private set; }
+
+    public GameState(int tickOffset, Point playerPosition)
+    {
+        TickOffset = tickOffset;
+        PlayerPosition = playerPosition;
+    }
 }
 
-public class GamestateCalculator
+public interface IGamestateCalculator
 {
-    public IEnumerable<GameState> GameStates { get; }
+    IEnumerable<GameState> GameStates { get; }
 
-    public GamestateCalculator()
+    void Recalculate();
+}
+
+public class GamestateCalculator : IGamestateCalculator
+{
+    private readonly IInputContainer inputContainer;
+
+    private Point lastPosition;
+
+    public IEnumerable<GameState> GameStates { get; private set; }
+
+    public GamestateCalculator(IInputContainer inputContainer)
     {
+        this.inputContainer = inputContainer;
         GameStates = new List<GameState>();
+        lastPosition = new Point(-1, -1);
     }
 
     public void Recalculate()
-    {}
+    {
+        Vector currentVector = new Vector(inputContainer.PlayerPosition.X - lastPosition.X,
+            inputContainer.PlayerPosition.Y - lastPosition.Y);
+
+        List<GameState> gameStates = new List<GameState>
+        {
+            new GameState(0,
+                new Point(inputContainer.PlayerPosition.X + currentVector.X,
+                    inputContainer.PlayerPosition.Y + currentVector.Y))
+        };
+
+        for (int i = 0; i < 6; i++)
+        {
+            gameStates.Add(new GameState(i+1,
+                new Point(gameStates[i].PlayerPosition.X + currentVector.X,
+                    gameStates[i].PlayerPosition.Y + currentVector.Y)));
+        }
+
+        GameStates = gameStates;
+
+        lastPosition = inputContainer.PlayerPosition;
+    }
 }
