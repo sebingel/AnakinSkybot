@@ -21,7 +21,8 @@ public class Player
 
         ISlowDownCalculator distanceSlowDownCalculator = new SimpleDistanceSlowDownCalculator(null, checkpointMemory,
             inputContainer);
-        ISlowDownCalculator slowDownCalculator = new LinearAngleSlowDownCalculator(distanceSlowDownCalculator, inputContainer);
+        ISlowDownCalculator slowDownCalculator = new LinearAngleSlowDownCalculator(distanceSlowDownCalculator,
+            inputContainer);
         //ISlowDownCalculator slowDownCalculator = new SimpleAngleSlowDownCalculator(null,inputContainer);
 
         IThrustCalculator thrustCalculator = new AngleAndDistThrustCalculator(checkpointMemory, boostUseCalculator,
@@ -175,8 +176,10 @@ public class Checkpoint
 public class Vector
 {
     public int X { get; }
+
     public int Y { get; }
-    //public int Length { get; set; }
+
+    public int Length => (int)Math.Round(Math.Sqrt(Math.Pow(X, 2) + Math.Pow(Y, 2)));
 
     public Vector(int x, int y)
     {
@@ -301,6 +304,7 @@ public interface ICheckpointMemory
 public class CheckpointMemory : ICheckpointMemory
 {
     private readonly List<Checkpoint> knownCheckpoints;
+    private bool allCheckPointsKnown;
 
     private int CheckpointCounter
     {
@@ -312,7 +316,31 @@ public class CheckpointMemory : ICheckpointMemory
 
     public ReadOnlyCollection<Checkpoint> KnownCheckpoints => knownCheckpoints.AsReadOnly();
 
-    public bool AllCheckPointsKnown { get; set; }
+    public bool AllCheckPointsKnown
+    {
+        get
+        {
+            return allCheckPointsKnown;
+        }
+        set
+        {
+            allCheckPointsKnown = value;
+
+            // calculate distance to next Checkpoint for every Checkpoint
+            foreach (var cp in KnownCheckpoints)
+            {
+                var cpNext = KnownCheckpoints.ToList().Find(ncp => ncp.Id == cp.Id + 1);
+                if (cpNext == null)
+                    cpNext = KnownCheckpoints[0];
+
+                int distX = cpNext.Position.X - cp.Position.X;
+                int distY = cpNext.Position.Y - cp.Position.Y;
+
+                cp.DistToNext = Math.Abs(distX) + Math.Abs(distY);
+                //Console.Error.WriteLine(cp.Id + " " + cp.DistToNext);
+            }
+        }
+    }
 
     public Checkpoint CurrentCheckpoint { get; set; }
 
@@ -364,20 +392,6 @@ public class BoostUseCalculator : IBoostUseCalculator
 
     public Checkpoint GetBoostTargetCheckpoint()
     {
-        // calculate distance to next Checkpoint for every Checkpoint
-        foreach (var cp in checkpointMemory.KnownCheckpoints)
-        {
-            var cpNext = checkpointMemory.KnownCheckpoints.ToList().Find(ncp => ncp.Id == cp.Id + 1);
-            if (cpNext == null)
-                cpNext = checkpointMemory.KnownCheckpoints[0];
-
-            int distX = cpNext.Position.X - cp.Position.X;
-            int distY = cpNext.Position.Y - cp.Position.Y;
-
-            cp.DistToNext = Math.Abs(distX) + Math.Abs(distY);
-            //Console.Error.WriteLine(cp.Id + " " + cp.DistToNext);
-        }
-
         // find Checkpoint with longest distance to next Checkpoint
         int boostCpId = checkpointMemory.KnownCheckpoints.ToList().OrderByDescending(item => item.DistToNext).First().Id;
         //Console.Error.WriteLine("boostCpId: " + boostCpId);
@@ -400,10 +414,8 @@ public class SpeedCalculator : ISpeedCalculator
 
     public int GetSpeed(Point currentPosition)
     {
-        int speed = Math.Abs(currentPosition.X - lastPosition.X) + Math.Abs(currentPosition.Y - lastPosition.Y);
-
+        int speed = new Vector(currentPosition.X - lastPosition.X, currentPosition.Y - lastPosition.Y).Length;
         lastPosition = currentPosition;
-
         return speed;
     }
 }
@@ -454,9 +466,15 @@ public class SmartTargetFinder : ITargetFinding
         {
             if (inputContainer.DistanceToNextCheckPoint < 1500 &&
                 speed.GetSpeed(currentPosition) > 500)
+            {
+                Console.Error.WriteLine("Target next Checkpoint");
                 target = GetDesiredPoint(currentCp.Position, nextCp.Position, checkpointAftertNextCheckpoint.Position);
+            }
             else
+            {
+                Console.Error.WriteLine("Target current Checkpoint");
                 target = GetDesiredPoint(currentPosition, currentCp.Position, nextCp.Position);
+            }
         }
 
         return target;
@@ -508,11 +526,12 @@ public class SmartTargetFinder : ITargetFinding
 
         Console.Error.WriteLine(v);
 
-        // if we are further away fromthe checkpoint than one third of the distance to the last checkpoint...
+        // if we are further away from the checkpoint than one third of the distance to the last checkpoint...
         Checkpoint currentCheckpoint = checkpointMemory.GetCheckpointAtPosition(new Point(p2.X, p2.Y));
         Checkpoint lastCheckpoint =
             checkpointMemory.KnownCheckpoints.ToList().Find(a => a.Id == currentCheckpoint.Id - 1) ??
             checkpointMemory.KnownCheckpoints[checkpointMemory.KnownCheckpoints.Count - 1];
+        Console.Error.WriteLine($"{inputContainer.DistanceToNextCheckPoint} > {lastCheckpoint.DistToNext / 3} ?");
         if (inputContainer.DistanceToNextCheckPoint >
             lastCheckpoint.DistToNext / 3)
         {
@@ -584,11 +603,11 @@ public class AngleAndDistThrustCalculator : IThrustCalculator
         string sThrust = thrust.ToString();
 
         // if we pass the boostCP -> BOOOOOST...
-        if (checkpointMemory.AllCheckPointsKnown &&
+        if ( /*checkpointMemory.AllCheckPointsKnown &&
             checkpointMemory.GetCheckpointAtPosition(targetPosition)?.Id ==
             boostUseCalculator.GetBoostTargetCheckpoint().Id &&
             slowDownValue < 5 &&
-            distanceToNextCheckpoint > 4000 &&
+            distanceToNextCheckpoint > 4000 &&*/
             !boost)
         {
             sThrust = "BOOST";
@@ -647,7 +666,7 @@ public class LinearAngleSlowDownCalculator : ISlowDownCalculator
 
     public double CalculateSlowDown()
     {
-        double angleSlow = 0.91 * Math.Abs(inputContainer.AngleToNextCheckPoint) - 8;
+        double angleSlow = 0.75 * Math.Abs(inputContainer.AngleToNextCheckPoint) - 8;
         //Console.Error.WriteLine($"angle: {angle}, angleSlow: {angleSlow}");
         angleSlow = angleSlow < 0 ? 0 : angleSlow;
 
