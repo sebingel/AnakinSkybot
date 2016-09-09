@@ -30,12 +30,12 @@ public class Player
             slowDownCalculator);
 
         new Player().Start(inputContainer, initialCheckpointGuesser, checkpointMemory, boostUseCalculator, targetFinding,
-            thrustCalculator);
+            thrustCalculator, speedCalculator);
     }
 
     public void Start(IInputContainer inputContainer, IInitialCheckpointGuesser initialCheckpointGuesser,
         ICheckpointMemory checkpointMemory, IBoostUseCalculator boostUseCalculator,
-        ITargetFinding targetFinding, IThrustCalculator thrustCalculator)
+        ITargetFinding targetFinding, IThrustCalculator thrustCalculator, ISpeedCalculator speedCalculator)
     {
         // Game Loop
         while (true)
@@ -88,7 +88,7 @@ public class Player
 
             #region speed calculations
 
-            //int speed = speedCalculator.GetSpeed(inputContainer.PlayerPosition);
+            speedCalculator.CalculateSpeed(inputContainer.PlayerPosition);
 
             #endregion
 
@@ -405,19 +405,22 @@ public class BoostUseCalculator : IBoostUseCalculator
 
 public interface ISpeedCalculator
 {
-    int GetSpeed(Point currentPosition);
+    void CalculateSpeed(Point currentPosition);
+
+    int Speed { get; }
 }
 
 public class SpeedCalculator : ISpeedCalculator
 {
     private Point lastPosition;
 
-    public int GetSpeed(Point currentPosition)
+    public void CalculateSpeed(Point currentPosition)
     {
-        int speed = new Vector(currentPosition.X - lastPosition.X, currentPosition.Y - lastPosition.Y).Length;
+        Speed = new Vector(currentPosition.X - lastPosition.X, currentPosition.Y - lastPosition.Y).Length;
         lastPosition = currentPosition;
-        return speed;
     }
+
+    public int Speed { get; private set; }
 }
 
 public interface ITargetFinding
@@ -465,7 +468,7 @@ public class SmartTargetFinder : ITargetFinding
         if (checkpointMemory.AllCheckPointsKnown)
         {
             if (inputContainer.DistanceToNextCheckPoint < 1500 &&
-                speed.GetSpeed(currentPosition) > 500)
+                speed.Speed > 500)
             {
                 Console.Error.WriteLine("Target next Checkpoint");
                 target = GetDesiredPoint(currentCp.Position, nextCp.Position, checkpointAftertNextCheckpoint.Position);
@@ -736,4 +739,24 @@ public class SimpleDistanceSlowDownCalculator : ISlowDownCalculator
     }
 
     #endregion
+}
+
+public class GameState
+{
+    public int TickOffset { get; private set; }
+
+    public Point MyPosition { get; private set; }
+}
+
+public class GamestateCalculator
+{
+    public IEnumerable<GameState> GameStates { get; }
+
+    public GamestateCalculator()
+    {
+        GameStates = new List<GameState>();
+    }
+
+    public void Recalculate()
+    {}
 }
